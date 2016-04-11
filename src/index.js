@@ -5,8 +5,17 @@ var defaults = {
   title: '',
   message: '',
   type: '',
+  showInput: false,
+  inputValue: null,
+  inputPlaceholder: '',
+  inputPattern: null,
+  inputValidator: null,
+  inputErrorMessage: '',
   showConfirmButton: true,
   showCancelButton: false,
+  confirmButtonPosition: 'right',
+  confirmButtonHighlight: false,
+  cancelButtonHighlight: false,
   confirmButtonText: CONFIRM_TEXT,
   cancelButtonText: CANCEL_TEXT,
   confirmButtonClass: '',
@@ -14,6 +23,7 @@ var defaults = {
 };
 
 import Vue from 'vue';
+import msgboxVue from './msgbox.vue';
 
 var merge = function(target) {
   for (var i = 1, j = arguments.length; i < j; i++) {
@@ -31,7 +41,7 @@ var merge = function(target) {
   return target;
 };
 
-var MessageBoxConstructor = Vue.extend(require('./msgbox.vue'));
+var MessageBoxConstructor = Vue.extend(msgboxVue);
 
 var currentMsg, instance;
 var msgQueue = [];
@@ -42,17 +52,31 @@ var initInstance = function() {
   });
 
   instance.callback = function(action) {
-    var result;
     if (currentMsg) {
       var callback = currentMsg.callback;
       if (typeof callback === 'function') {
-        result = callback(action);
+        if (instance.showInput) {
+          callback(instance.inputValue, action);
+        } else {
+          callback(action);
+        }
       }
-    }
-    if (result !== false) {
-      showNextMsg();
-    } else {
-      return false;
+      if (currentMsg.resolve) {
+        var $type = currentMsg.options.$type;
+        if ($type === 'confirm' || $type === 'prompt') {
+          if (action === 'confirm') {
+            if (instance.showInput) {
+              currentMsg.resolve(instance.inputValue, action);
+            } else {
+              currentMsg.resolve(action);
+            }
+          } else if (action === 'cancel' && currentMsg.reject) {
+            currentMsg.reject(action);
+          }
+        } else {
+          currentMsg.resolve(action);
+        }
+      }
     }
   };
 };
@@ -66,9 +90,6 @@ var showNextMsg = function() {
     if (msgQueue.length > 0) {
       currentMsg = msgQueue.shift();
 
-      var oldVisible = instance.visible;
-      instance.visible = false;
-
       var options = currentMsg.options;
       for (var prop in options) {
         if (options.hasOwnProperty(prop)) {
@@ -76,9 +97,9 @@ var showNextMsg = function() {
         }
       }
 
-      instance.visible = oldVisible;
-
-      instance.open();
+      Vue.nextTick(() => {
+        instance.open();
+      });
     }
   }
 };
@@ -98,16 +119,68 @@ var MessageBox = function(options, callback) {
     callback = options.callback;
   }
 
-  msgQueue.push({
-    options: merge({}, defaults, MessageBox.defaults || {}, options),
-    callback: callback
-  });
+  if (typeof Promise !== 'undefined') {
+    return new Promise(function (resolve, reject) {
+      msgQueue.push({
+        options: merge({}, defaults, MessageBox.defaults || {}, options),
+        callback: callback,
+        resolve: resolve,
+        reject: reject
+      });
 
-  showNextMsg();
+      showNextMsg();
+    });
+  } else {
+    msgQueue.push({
+      options: merge({}, defaults, MessageBox.defaults || {}, options),
+      callback: callback
+    });
+
+    showNextMsg();
+  }
 };
 
 MessageBox.setDefaults = function(defaults) {
   MessageBox.defaults = defaults;
+};
+
+MessageBox.alert = function(message, title, options) {
+  if (typeof title === 'object') {
+    options = title;
+    title = '';
+  }
+  return MessageBox(merge({
+    title: title,
+    message: message,
+    $type: 'alert'
+  }, options));
+};
+
+MessageBox.confirm = function(message, title, options) {
+  if (typeof title === 'object') {
+    options = title;
+    title = '';
+  }
+  return MessageBox(merge({
+    title: title,
+    message: message,
+    $type: 'confirm',
+    showCancelButton: true
+  }, options));
+};
+
+MessageBox.prompt = function(message, title, options) {
+  if (typeof title === 'object') {
+    options = title;
+    title = '';
+  }
+  return MessageBox(merge({
+    title: title,
+    message: message,
+    showCancelButton: true,
+    showInput: true,
+    $type: 'prompt'
+  }, options));
 };
 
 MessageBox.close = function() {
@@ -117,3 +190,4 @@ MessageBox.close = function() {
 };
 
 export default MessageBox;
+export { MessageBox };
